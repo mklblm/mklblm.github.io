@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mklblm</title>
+<style>
+  :root { --bg: #0b0b0b; --fg: #d9d6cf; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+  pre#art {
+    margin: 0; position: fixed; inset: 0;
+    font: 10px/1 ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+    color: var(--fg); white-space: pre; user-select: none;
+  }
+</style>
+</head>
+<body>
+<pre id="art" aria-hidden="true"></pre>
+
+<script src="art.js"></script>
+<script>
+(() => {
+  const A = window.ART, pre = document.getElementById("art");
+  const RAMP = " .,:;i+*x%#@", N = RAMP.length - 1;
+  const base = Uint8Array.from(A.base, c => c.charCodeAt(0) - 48);
+  const detail = Uint8Array.from(A.detail, c => c.charCodeAt(0) - 48);
+  const mask = Uint8Array.from(A.mask, c => c === "1");
+  const GRAIN = 2, CONTRAST = 2.5, DUST = 2;
+
+  // a new random seed on every load; resizing redraws the same frame
+  const seed = crypto.getRandomValues(new Uint32Array(1))[0] | 1;
+  let s;
+  const rnd = () => ((s ^= s << 13, s ^= s >>> 17, s ^= s << 5) >>> 0) / 4294967296;
+
+  // grid: image rows fill the screen height; extra columns/rows reuse the edge (wall to the right, body below)
+  let cols, rows;
+  function layout() {
+    pre.style.fontSize = "100px";
+    const probe = document.createElement("span");
+    probe.textContent = "M".repeat(50);
+    pre.textContent = ""; pre.appendChild(probe);
+    const ratio = probe.getBoundingClientRect().width / 50 / 100;  // char width / font size
+    // on narrow screens keep the whole figure in view, otherwise fill the height
+    const fs = Math.min(innerHeight / A.rows, innerWidth / (A.figureCols * ratio));
+    pre.style.fontSize = fs + "px";
+    cols = Math.ceil(innerWidth / (fs * ratio)) + 1;
+    rows = Math.ceil(innerHeight / fs) + 1;
+  }
+
+  // dust: dark specks on the wall, a few light ones that also show on the figure; 1-3 cells, irregular
+  function makeDust() {
+    const dust = new Map(), n = Math.round(cols * rows / 400 * DUST);
+    for (let d = 0; d < n; d++) {
+      const x = (rnd() * cols) | 0, y = (rnd() * rows) | 0, light = rnd() < .2, size = rnd() < .7 ? 1 : 2 + (rnd() * 2 | 0);
+      for (let k = 0; k < size; k++) dust.set((y + (k > 1 ? 1 : 0)) * cols + x + (k % 2), light ? .5 : -.65);
+    }
+    return dust;
+  }
+
+  function draw() {
+    s = seed;
+    const ox = (rnd() * A.tileCols) | 0, oy = (rnd() * A.rows) | 0, dust = makeDust();
+
+    const out = new Array(rows);
+    for (let y = 0; y < rows; y++) {
+      const iy = Math.min(y, A.rows - 1);
+      let line = "";
+      for (let x = 0; x < cols; x++) {
+        const i = iy * A.cols + Math.min(x, A.cols - 1), c = y * cols + x, d = dust.get(c), noise = rnd() - .5;
+        let L;
+        if (mask[i]) {
+          L = noise > .485 ? .25 : 0;  // a little grain in the blacks
+          if (d > 0) L = d;
+        } else {
+          const t = detail[((y + oy) % A.rows) * A.tileCols + (x + ox) % A.tileCols] / 63 - .5;
+          L = base[i] / 63 + GRAIN * (t * .9 + noise * .22);
+          L = .5 + (L - .5) * CONTRAST;
+          if (d) L += d;
+        }
+        L = Math.max(0, Math.min(1, L));
+        line += RAMP[Math.round(L * N)];
+      }
+      out[y] = line;
+    }
+    pre.textContent = out.join("\n");
+  }
+
+  addEventListener("resize", () => { layout(); draw(); });
+  layout(); draw();
+})();
+</script>
+</body>
+</html>
